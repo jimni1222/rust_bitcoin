@@ -16,12 +16,12 @@
 //! Keys used in Bitcoin that can be roundtrip (de)serialized.
 //!
 
+use consensus::encode;
+use network::constants::Network;
+use secp256k1::{self, Secp256k1};
 use std::fmt::{self, Write};
 use std::io;
 use std::str::FromStr;
-use secp256k1::{self, Secp256k1};
-use consensus::encode;
-use network::constants::Network;
 use util::base58;
 
 /// A Bitcoin ECDSA public key
@@ -49,7 +49,9 @@ impl PublicKey {
         let compressed: bool = match data.len() {
             33 => true,
             65 => false,
-            len =>  { return Err(base58::Error::InvalidLength(len).into()); },
+            len => {
+                return Err(base58::Error::InvalidLength(len).into());
+            }
         };
 
         Ok(PublicKey {
@@ -59,7 +61,10 @@ impl PublicKey {
     }
 
     /// Computes the public key as supposed to be used with this secret
-    pub fn from_private_key<C: secp256k1::Signing>(secp: &Secp256k1<C>, sk: &PrivateKey) -> PublicKey {
+    pub fn from_private_key<C: secp256k1::Signing>(
+        secp: &Secp256k1<C>,
+        sk: &PrivateKey,
+    ) -> PublicKey {
         sk.public_key(secp)
     }
 }
@@ -80,7 +85,7 @@ impl PrivateKey {
     pub fn public_key<C: secp256k1::Signing>(&self, secp: &Secp256k1<C>) -> PublicKey {
         PublicKey {
             compressed: self.compressed,
-            key: secp256k1::PublicKey::from_secret_key(secp, &self.key)
+            key: secp256k1::PublicKey::from_secret_key(secp, &self.key),
         }
     }
 
@@ -88,8 +93,8 @@ impl PrivateKey {
     pub fn fmt_wif(&self, fmt: &mut fmt::Write) -> fmt::Result {
         let mut ret = [0; 34];
         ret[0] = match self.network {
-            Network::Bitcoin => 128,
             Network::Testnet | Network::Regtest => 239,
+            _ => 128,
         };
         ret[1..33].copy_from_slice(&self.key[..]);
         let privkey = if self.compressed {
@@ -116,13 +121,21 @@ impl PrivateKey {
         let compressed = match data.len() {
             33 => false,
             34 => true,
-            _ => { return Err(encode::Error::Base58(base58::Error::InvalidLength(data.len()))); }
+            _ => {
+                return Err(encode::Error::Base58(base58::Error::InvalidLength(
+                    data.len(),
+                )));
+            }
         };
 
         let network = match data[0] {
             128 => Network::Bitcoin,
             239 => Network::Testnet,
-            x   => { return Err(encode::Error::Base58(base58::Error::InvalidVersion(vec![x]))); }
+            x => {
+                return Err(encode::Error::Base58(base58::Error::InvalidVersion(vec![
+                    x,
+                ])));
+            }
         };
 
         Ok(PrivateKey {
@@ -155,35 +168,46 @@ impl FromStr for PrivateKey {
 #[cfg(test)]
 mod tests {
     use super::PrivateKey;
+    use network::constants::Network::Bitcoin;
+    use network::constants::Network::Testnet;
     use secp256k1::Secp256k1;
     use std::str::FromStr;
-    use network::constants::Network::Testnet;
-    use network::constants::Network::Bitcoin;
     use util::address::Address;
 
     #[test]
     fn test_key_derivation() {
         // testnet compressed
-        let sk = PrivateKey::from_wif("cVt4o7BGAig1UXywgGSmARhxMdzP5qvQsxKkSsc1XEkw3tDTQFpy").unwrap();
+        let sk =
+            PrivateKey::from_wif("cVt4o7BGAig1UXywgGSmARhxMdzP5qvQsxKkSsc1XEkw3tDTQFpy").unwrap();
         assert_eq!(sk.network, Testnet);
         assert_eq!(sk.compressed, true);
-        assert_eq!(&sk.to_wif(), "cVt4o7BGAig1UXywgGSmARhxMdzP5qvQsxKkSsc1XEkw3tDTQFpy");
+        assert_eq!(
+            &sk.to_wif(),
+            "cVt4o7BGAig1UXywgGSmARhxMdzP5qvQsxKkSsc1XEkw3tDTQFpy"
+        );
 
         let secp = Secp256k1::new();
         let pk = Address::p2pkh(&sk.public_key(&secp), sk.network);
         assert_eq!(&pk.to_string(), "mqwpxxvfv3QbM8PU8uBx2jaNt9btQqvQNx");
 
         // test string conversion
-        assert_eq!(&sk.to_string(), "cVt4o7BGAig1UXywgGSmARhxMdzP5qvQsxKkSsc1XEkw3tDTQFpy");
+        assert_eq!(
+            &sk.to_string(),
+            "cVt4o7BGAig1UXywgGSmARhxMdzP5qvQsxKkSsc1XEkw3tDTQFpy"
+        );
         let sk_str =
             PrivateKey::from_str("cVt4o7BGAig1UXywgGSmARhxMdzP5qvQsxKkSsc1XEkw3tDTQFpy").unwrap();
         assert_eq!(&sk.to_wif(), &sk_str.to_wif());
 
         // mainnet uncompressed
-        let sk = PrivateKey::from_wif("5JYkZjmN7PVMjJUfJWfRFwtuXTGB439XV6faajeHPAM9Z2PT2R3").unwrap();
+        let sk =
+            PrivateKey::from_wif("5JYkZjmN7PVMjJUfJWfRFwtuXTGB439XV6faajeHPAM9Z2PT2R3").unwrap();
         assert_eq!(sk.network, Bitcoin);
         assert_eq!(sk.compressed, false);
-        assert_eq!(&sk.to_wif(), "5JYkZjmN7PVMjJUfJWfRFwtuXTGB439XV6faajeHPAM9Z2PT2R3");
+        assert_eq!(
+            &sk.to_wif(),
+            "5JYkZjmN7PVMjJUfJWfRFwtuXTGB439XV6faajeHPAM9Z2PT2R3"
+        );
 
         let secp = Secp256k1::new();
         let pk = Address::p2pkh(&sk.public_key(&secp), sk.network);
